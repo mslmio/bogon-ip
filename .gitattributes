@@ -1,0 +1,3 @@
+# The lists are read byte for byte by other repositories, so a checkout must never rewrite them.
+*.txt text eol=lf
+*.tsv text eol=lf
