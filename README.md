@@ -43,6 +43,16 @@ go test ./...
 
 The checks refuse a block that is not canonical, a block listed twice, a block listed after one that contains it, an IPv4 block without both of its 6to4 and Teredo forms, and a vector the table does not agree with.
 
+## Checking against IANA
+
+IANA's special-purpose registries for [IPv4](https://www.iana.org/assignments/iana-ipv4-special-registry/) and [IPv6](https://www.iana.org/assignments/iana-ipv6-special-registry/) mark which blocks are not globally reachable, and the list covers every address they mark, judged by the most specific entry that contains it: Teredo's `2001::/32` is N/A inside a `2001::/23` marked not reachable, so the rest of the `/23` is covered and the `/32` need not be. To check the list against the registries as they stand, which needs the network:
+
+```bash
+go test . -run IANA -iana -v
+```
+
+It fails naming each entry that has space no block covers. What the list holds beyond the registries, such as multicast and unallocated space, is its own and is not checked.
+
 ## License
 
 MIT.
