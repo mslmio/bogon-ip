@@ -22,8 +22,8 @@ var ianaRegistries = []string{
 	"https://www.iana.org/assignments/iana-ipv6-special-registry/iana-ipv6-special-registry-1.csv",
 }
 
-// Every address IANA's special-purpose registries mark not globally reachable is in a block. It
-// fetches the registries, so it runs only with -iana.
+// Every address IANA's special-purpose registries mark not globally reachable is in a block, and space
+// they mark globally reachable that a block covers is listed. It fetches them, so it runs only with -iana.
 func TestIANA(t *testing.T) {
 	if !*iana {
 		t.Skip("fetches IANA's registries: run with -iana")
@@ -39,6 +39,10 @@ func TestIANA(t *testing.T) {
 		for _, g := range gaps(entries, blocks) {
 			t.Errorf("IANA's %s (%s) is not globally reachable, and no block covers %s",
 				canonical(g.entry.prefix), g.entry.name, spans(g.prefixes))
+		}
+		for _, c := range covered(entries, blocks) {
+			t.Logf("IANA's %s (%s) is globally reachable, and the list calls %s a bogon",
+				canonical(c.entry.prefix), c.entry.name, spans(c.prefixes))
 		}
 		t.Logf("%s: %d entries", url, len(entries))
 	}
@@ -68,18 +72,18 @@ func TestIANAParse(t *testing.T) {
 	}
 	var got []string
 	for _, e := range entries {
-		got = append(got, fmt.Sprintf("%s %s bogon=%v", e.prefix, e.name, e.bogon))
+		got = append(got, fmt.Sprintf("%s %s reachable=%s", e.prefix, e.name, e.reachable))
 	}
 	want := []string{
-		"192.0.0.0/24 IETF Protocol Assignments bogon=true",
-		"192.0.0.9/32 Port Control Protocol Anycast bogon=false",
-		"192.0.0.170/32 NAT64/DNS64 Discovery bogon=true",
-		"192.0.0.171/32 NAT64/DNS64 Discovery bogon=true",
-		"192.88.99.2/32 6a44-relay anycast address bogon=true",
-		"255.255.255.255/32 Limited Broadcast bogon=true",
-		"2001::/23 IETF Protocol Assignments bogon=true",
-		"2001::/32 TEREDO bogon=false",
-		"2001:3::/32 AMT bogon=false",
+		"192.0.0.0/24 IETF Protocol Assignments reachable=False",
+		"192.0.0.9/32 Port Control Protocol Anycast reachable=True",
+		"192.0.0.170/32 NAT64/DNS64 Discovery reachable=False",
+		"192.0.0.171/32 NAT64/DNS64 Discovery reachable=False",
+		"192.88.99.2/32 6a44-relay anycast address reachable=False",
+		"255.255.255.255/32 Limited Broadcast reachable=False",
+		"2001::/23 IETF Protocol Assignments reachable=False",
+		"2001::/32 TEREDO reachable=N/A",
+		"2001:3::/32 AMT reachable=True",
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("parsed\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
@@ -112,10 +116,36 @@ func TestIANAGaps(t *testing.T) {
 	}
 }
 
+// A reachable entry lists the space a block covers, less any entry inside it, and neither a False entry
+// nor Teredo's N/A lists any.
+func TestIANACovered(t *testing.T) {
+	entries, err := parseRegistry(strings.NewReader(ianaFixture))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// No registry nests an entry inside a reachable one today, so this one is made up.
+	entries = append(entries, ianaEntry{prefix: netip.MustParsePrefix("2001:3:4000::/34"), reachable: "False"})
+	var blocks []block
+	for _, cidr := range []string{"192.0.0.0/24", "2001::/32", "2001:3::/33"} {
+		blocks = append(blocks, block{cidr: cidr, prefix: netip.MustParsePrefix(cidr)})
+	}
+	var got []string
+	for _, c := range covered(entries, blocks) {
+		got = append(got, fmt.Sprintf("%s: %s", c.entry.prefix, spans(c.prefixes)))
+	}
+	want := []string{
+		"192.0.0.9/32: 192.0.0.9/32",
+		"2001:3::/32: 2001:3::/34",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("covered\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
 type ianaEntry struct {
-	prefix netip.Prefix
-	name   string
-	bogon  bool
+	prefix    netip.Prefix
+	name      string
+	reachable string
 }
 
 // fetchRegistry refuses a registry with no entry marked not globally reachable, which a changed
@@ -133,7 +163,7 @@ func fetchRegistry(client *http.Client, url string) ([]ianaEntry, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !slices.ContainsFunc(entries, func(e ianaEntry) bool { return e.bogon }) {
+	if !slices.ContainsFunc(entries, func(e ianaEntry) bool { return e.reachable == "False" }) {
 		return nil, errors.New("no entry is marked not globally reachable")
 	}
 	return entries, nil
@@ -142,8 +172,8 @@ func fetchRegistry(client *http.Client, url string) ([]ianaEntry, error) {
 // footnote is a mark like " [2]" that IANA appends to a cell, citing a note below its table.
 var footnote = regexp.MustCompile(`\s*\[\d+\]`)
 
-// parseRegistry reads a registry's CSV, leaving out terminated entries. An entry is a bogon when
-// IANA marks it not globally reachable, and a value other than True, False or N/A is an error.
+// parseRegistry reads a registry's CSV, leaving out terminated entries. Each entry keeps its Globally
+// Reachable value, and a value other than True, False or N/A is an error.
 func parseRegistry(r io.Reader) ([]ianaEntry, error) {
 	rows, err := csv.NewReader(r).ReadAll()
 	if err != nil {
@@ -173,7 +203,7 @@ func parseRegistry(r io.Reader) ([]ianaEntry, error) {
 		if reachable != "True" && reachable != "False" && reachable != "N/A" {
 			return nil, fmt.Errorf("%s: Globally Reachable is %q", cell("Address Block"), reachable)
 		}
-		entry := ianaEntry{name: cell("Name"), bogon: reachable == "False"}
+		entry := ianaEntry{name: cell("Name"), reachable: reachable}
 		for _, s := range strings.Split(cell("Address Block"), ",") {
 			p, err := netip.ParsePrefix(strings.TrimSpace(s))
 			if err != nil {
@@ -186,17 +216,17 @@ func parseRegistry(r io.Reader) ([]ianaEntry, error) {
 	return entries, nil
 }
 
-type gap struct {
+type part struct {
 	entry    ianaEntry
 	prefixes []netip.Prefix
 }
 
 // gaps is the space each entry marks not globally reachable that no block covers. The most specific
 // entry decides an address, so an entry leaves out every entry inside it.
-func gaps(entries []ianaEntry, blocks []block) []gap {
-	var found []gap
+func gaps(entries []ianaEntry, blocks []block) []part {
+	var found []part
 	for _, e := range entries {
-		if !e.bogon {
+		if e.reachable != "False" {
 			continue
 		}
 		var exclude []netip.Prefix
@@ -209,7 +239,37 @@ func gaps(entries []ianaEntry, blocks []block) []gap {
 			exclude = append(exclude, b.prefix)
 		}
 		if left := subtract(e.prefix, exclude); len(left) > 0 {
-			found = append(found, gap{entry: e, prefixes: left})
+			found = append(found, part{entry: e, prefixes: left})
+		}
+	}
+	return found
+}
+
+// covered is the space each entry marks globally reachable that a block covers, the most specific entry
+// deciding each address as in gaps.
+func covered(entries []ianaEntry, blocks []block) []part {
+	var found []part
+	for _, e := range entries {
+		if e.reachable != "True" {
+			continue
+		}
+		var cut []netip.Prefix
+		for _, other := range entries {
+			if other.prefix != e.prefix && inside(e.prefix, other.prefix) {
+				cut = append(cut, other.prefix)
+			}
+		}
+		decided := subtract(e.prefix, cut)
+		for _, b := range blocks {
+			cut = append(cut, b.prefix)
+		}
+		uncovered := subtract(e.prefix, cut)
+		var blocked []netip.Prefix
+		for _, p := range decided {
+			blocked = append(blocked, subtract(p, uncovered)...)
+		}
+		if len(blocked) > 0 {
+			found = append(found, part{entry: e, prefixes: blocked})
 		}
 	}
 	return found

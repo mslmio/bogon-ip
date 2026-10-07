@@ -51,7 +51,7 @@ IANA's special-purpose registries for [IPv4](https://www.iana.org/assignments/ia
 go test . -run IANA -iana -v
 ```
 
-It fails naming each entry that has space no block covers. What the list holds beyond the registries, such as multicast and unallocated space, is its own and is not checked.
+It fails naming each entry that has space no block covers. It also lists, without failing, each entry marked globally reachable that the list calls a bogon all the same, such as AMT's `2001:3::/32`, inside `2001:2::/31`. What the list holds beyond the registries, such as multicast and unallocated space, is its own and is not checked.
 
 ## License
 
