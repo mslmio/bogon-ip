@@ -12,7 +12,7 @@ curl -fsSL https://raw.githubusercontent.com/mslmio/bogon-ip/v1.0.0/ipv4.txt
 |---|---|
 | `ipv4.txt`, `ipv6.txt` | One CIDR per line and nothing else: no header, no comments, a newline after the last line. |
 | `bogons.tsv` | Every block with its name and the RFC that takes it out of circulation, IPv4 first. The two lists above are generated from it. |
-| `vectors.tsv` | Addresses, and whether each is a bogon. Every checker built on this list must give these answers. |
+| `vectors.tsv` | Addresses, and whether each is a bogon. Every checker built on this list must give these answers, and every block but the IPv4-mapped one is the narrowest match of at least one of them. |
 
 Every file is UTF-8 with bare `\n` line endings, and every block is written in its canonical form ([RFC 5952](https://datatracker.ietf.org/doc/html/rfc5952) for IPv6, lower case and compressed), except that the IPv4-mapped block is `::ffff:0:0/96`, as IANA writes it.
 
@@ -41,7 +41,7 @@ go test . -update
 go test ./...
 ```
 
-The checks refuse a block that is not canonical, a block listed twice, a block listed after one that contains it, an IPv4 block without both of its 6to4 and Teredo forms, and a vector the table does not agree with.
+The checks refuse a block that is not canonical, a block listed twice, a block listed after one that contains it, an IPv4 block without both of its 6to4 and Teredo forms, a vector the table does not agree with, and a block no vector has as its narrowest match.
 
 ## Checking against IANA
 

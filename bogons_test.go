@@ -104,6 +104,7 @@ func TestMirrors(t *testing.T) {
 func TestVectors(t *testing.T) {
 	blocks := readBlocks(t)
 	seen := map[string]bool{}
+	reached := map[string]bool{}
 	for i, row := range readTSV(t, "vectors.tsv", "address", "bogon", "why") {
 		line := i + 2
 		if seen[row[0]] {
@@ -122,8 +123,20 @@ func TestVectors(t *testing.T) {
 		if row[2] == "" {
 			t.Errorf("vectors.tsv:%d: %s says nothing about why", line, row[0])
 		}
-		if got := judge(blocks, addr); got != (row[1] == "true") {
+		b, got := first(blocks, addr)
+		if got != (row[1] == "true") {
 			t.Errorf("vectors.tsv:%d: %s says bogon %s, the table says %v", line, row[0], row[1], got)
+		}
+		if got {
+			reached[b.cidr] = true
+		}
+	}
+	// A block no vector reaches first can go missing from a checker that still passes them all. The
+	// IPv4-mapped block is the exception: a checker unmaps before it looks, so no address reaches it.
+	mapped := netip.MustParsePrefix("::ffff:0:0/96")
+	for _, b := range blocks {
+		if !reached[b.cidr] && !inside(mapped, b.prefix) {
+			t.Errorf("no vector has %s as its narrowest block, so a checker without it passes every vector", b.cidr)
 		}
 	}
 }
@@ -212,13 +225,14 @@ func wrap(space, v4 netip.Prefix) netip.Prefix {
 	return netip.PrefixFrom(netip.AddrFrom16(a), space.Bits()+v4.Bits())
 }
 
-// judge is the rule every checker implements: unmap, then find a block of the address's own family.
-func judge(blocks []block, addr netip.Addr) bool {
+// first is the rule every checker implements: unmap, then find a block of the address's own family. The
+// table lists a narrower block before any broader one, so the block it finds is the narrowest.
+func first(blocks []block, addr netip.Addr) (block, bool) {
 	addr = addr.Unmap()
 	for _, b := range blocks {
 		if b.prefix.Contains(addr) {
-			return true
+			return b, true
 		}
 	}
-	return false
+	return block{}, false
 }
