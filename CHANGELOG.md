@@ -2,6 +2,12 @@
 
 What each release changed for you, newest first. Each line is a commit's summary, linked to its full description and diff.
 
+## 1.0.1 - 2026-11-02
+
+### Fixes
+
+- Give every block a vector, so a checker missing one fails ([`df958c3`](https://github.com/mslmio/bogon-ip/commit/df958c3150fbc565687ff9ff420dc91d91d2cb00))
+
 ## 1.0.0 - 2026-09-28
 
 ### Features

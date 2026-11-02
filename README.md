@@ -3,7 +3,7 @@
 The address blocks that must never appear as a public peer: unallocated, reserved, private, documentation, link-local and multicast space, plus the 6to4 and Teredo forms of every IPv4 block. One list, as plain text, for any language or tool to seed its own bogon check from, so that every checker built on it gives the same answer for every address.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/mslmio/bogon-ip/v1.0.0/ipv4.txt
+curl -fsSL https://raw.githubusercontent.com/mslmio/bogon-ip/v1.0.1/ipv4.txt
 ```
 
 ## Files
